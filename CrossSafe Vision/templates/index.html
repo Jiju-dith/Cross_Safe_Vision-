@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrossSafe Vision Dashboard</title>
+<style>
+:root{--bg:#eceff1;--panel:#fff;--ink:#17202a;--mute:#5b6773;--line:#d3d9df;--amber:#b7791f;--amberbg:#fff4d6;--red:#b8322a;--redbg:#fde8e6;--green:#25704a;--greenbg:#e3f3ea;--bar:#1f5f8b}
+@media(prefers-color-scheme:dark){:root{--bg:#12171d;--panel:#1b222a;--ink:#eef1f4;--mute:#9aa6b2;--line:#2e3842;--amber:#f2c53d;--amberbg:#3a3015;--red:#ff7b70;--redbg:#3d1d1a;--green:#5cc489;--greenbg:#16301f;--bar:#6bb3e0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Trebuchet MS","Segoe UI",system-ui,sans-serif}
+.zebra{height:12px;background:repeating-linear-gradient(90deg,var(--ink) 0 22px,transparent 22px 44px)}
+main{max-width:980px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1{font-size:1.5rem;margin:0} h2{font-size:1rem;margin:0 0 8px}
+.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-weight:700;font-size:.85rem}
+.badge.demo{background:var(--amberbg);color:var(--amber);border:2px dashed var(--amber)}
+.badge.live{background:var(--greenbg);color:var(--green);border:2px solid var(--green)}
+.alerts{display:grid;gap:8px;margin-bottom:12px}
+.alert{padding:10px 12px;border-left:6px solid var(--red);background:var(--redbg);color:var(--ink);font-weight:600}
+.alert.sim{border-color:var(--amber);background:var(--amberbg)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));margin-bottom:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px}
+.total{font-size:3.4rem;font-weight:800;line-height:1}
+.mute{color:var(--mute);font-size:.9rem}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;background:var(--mute)}
+.ok .dot{background:var(--green)}.bad .dot{background:var(--red)}
+.state{font-weight:700}.bad .state{color:var(--red)}.ok .state{color:var(--green)}
+.light-state{display:flex;align-items:center;gap:8px;margin:4px 0 8px}
+.light-icon{width:14px;height:14px;border-radius:50%;background:var(--mute);border:2px solid var(--line);display:inline-block}
+.light-on .light-icon{background:#fff6a5;border-color:#d7a900;box-shadow:0 0 10px #ffd83d}
+.light-off .light-icon{background:#6d747c;border-color:#555}
+canvas{width:100%;height:220px;display:block}
+table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+th{color:var(--mute);font-weight:600;font-size:.9rem}.wrap{overflow-x:auto}
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;padding:10px 14px;border-radius:6px;border:2px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer;font-weight:600}
+button:hover{background:var(--ink);color:var(--bg)}button:focus-visible{outline:3px solid var(--bar);outline-offset:2px}
+.stale{opacity:.5}[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="zebra"></div>
+<main>
+<header><h1>CrossSafe Vision</h1><div><span id="modeBadge" class="badge demo">DEMO DATA</span></div></header>
+<div id="alerts" class="alerts" aria-live="polite"></div>
+<div id="data">
+<div class="grid">
+<section class="panel"><h2>Crossing events</h2><div class="total" id="total">0</div><div class="mute" id="updated">Waiting for data</div></section>
+<section class="panel" id="camCard"><h2>Camera</h2><div><span class="dot"></span><span class="state" id="camState">-</span></div><div class="mute" id="camSeen"></div></section>
+<section class="panel" id="ctrlCard"><h2>Light controller</h2><div><span class="dot"></span><span class="state" id="ctrlState">-</span></div><div class="mute" id="ctrlSeen"></div></section>
+<section class="panel" id="lightCard">
+<h2>White-light status</h2>
+<div class="light-state" id="lightVisual"><span class="light-icon" aria-hidden="true"></span><span class="state" id="lightState">Unknown</span></div>
+<div class="mute" id="lightCmd">No command sent yet</div>
+<div class="mute" id="lightNote">The controller reports its GPIO output; it cannot confirm that the physical LEDs are emitting light.</div>
+</section>
+</div>
+<section class="panel" style="margin-bottom:12px"><h2>Events per minute (last 10 minutes)</h2><canvas id="chart" role="img" aria-label="Bar chart of crossing events per minute"></canvas></section>
+<section class="panel" style="margin-bottom:12px"><h2>Recent events</h2><div class="wrap"><table><thead><tr><th>Time</th><th>Tracking ID</th></tr></thead><tbody id="rows"></tbody></table></div><div class="mute" id="noEvents" hidden>No events yet. Walk through the crossing zone.</div></section>
+</div>
+<section class="panel">
+<h2>Demo controls</h2>
+<div class="controls">
+<button id="bMode">Switch to live data</button>
+<button id="bFail">Simulated Light Failure (on/off)</button>
+<span id="demoOnly" class="controls"><button id="bEvent">Add fake event</button><button id="bCam">Drop camera</button><button id="bCtrl">Drop controller</button><button id="bReset">Reset demo</button></span>
+</div>
+<p class="mute">Fake events and dropped devices only work in demo mode. Simulated failure is a dashboard demonstration and does not change the hardware. Live light status is based on the ESP32 controller's reported GPIO state, not an optical sensor.</p>
+</section>
+</main>
+<script>
+const API_BASE = "";
+const POLL_MS = 2000;
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2,"0");
+const hm = d => pad(d.getHours())+":"+pad(d.getMinutes());
+const hms = d => hm(d)+":"+pad(d.getSeconds());
+const iso = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+hms(d);
+let live = new URLSearchParams(location.search).has("live");
+let simFail = false;
+let mock;
+function resetMock(){mock={events:[],nextId:1,camDown:false,ctrlDown:false,lightCmd:null,lightSent:null,lightOn:false,camSeen:Date.now(),ctrlSeen:Date.now()};}
+resetMock();
+function mockData(){
+ const now=Date.now(), buckets=[];
+ if(!mock.camDown)mock.camSeen=now;if(!mock.ctrlDown)mock.ctrlSeen=now;
+ for(let i=9;i>=0;i--){const label=hm(new Date(now-i*60000));buckets.push({minute:label,count:mock.events.filter(e=>e.minute===label).length});}
+ return {summary:{total:mock.events.length,per_minute:buckets},events:mock.events.slice().reverse().slice(0,20).map(e=>({id:e.id,timestamp:e.timestamp,track_id:e.track_id})),status:{camera:{connected:!mock.camDown,last_seen:iso(new Date(mock.camSeen))},controller:{connected:!mock.ctrlDown,last_seen:iso(new Date(mock.ctrlSeen))},light:{connected:!mock.ctrlDown,last_command:mock.lightCmd,sent_at:mock.lightSent,gpio_on:mock.lightOn,state_confirmed_by_controller:!mock.ctrlDown}}};
+}
+async function liveData(){
+ const get=async p=>{const r=await fetch(API_BASE+p,{cache:"no-store"});if(!r.ok)throw new Error(p+" returned "+r.status);return r.json();};
+ const [summary,events,status]=await Promise.all([get("/api/summary"),get("/api/events?limit=20"),get("/api/status")]);
+ return {summary,events,status};
+}
+function deviceDown(dev){return !dev||!dev.connected||!dev.last_seen;}
+function seenText(dev){if(!dev||!dev.last_seen)return "Never seen";const d=new Date(Date.parse(dev.last_seen));return isNaN(d)?"Last seen unknown":"Last seen "+hms(d);}
+function setDevice(cardId,stateId,seenId,dev,name){
+ const down=deviceDown(dev);$(cardId).className="panel "+(down?"bad":"ok");$(stateId).textContent=down?"Disconnected":"Connected";$(seenId).textContent=seenText(dev);
+ return down?name+" has stopped communicating. Check power and Wi-Fi.":null;
+}
+function render(d,error){
+ const alerts=[];$("data").classList.toggle("stale",!!error);
+ if(error){alerts.push({t:"Cannot reach the backend ("+error+"). Numbers are hidden until it responds.",sim:false});$("updated").textContent="No data";$("total").textContent="-";$("camState").textContent="-";$("ctrlState").textContent="-";$("lightState").textContent="Unknown";$("lightCmd").textContent="Controller status unavailable";$("lightVisual").className="light-state";}
+ else{
+  $("total").textContent=d.summary.total;$("updated").textContent="Updated "+hms(new Date());
+  const c=setDevice("camCard","camState","camSeen",d.status.camera,"Camera"),k=setDevice("ctrlCard","ctrlState","ctrlSeen",d.status.controller,"Light controller");
+  if(c)alerts.push({t:c,sim:false});if(k)alerts.push({t:k,sim:false});
+  const l=d.status.light||{};
+  const lightKnown=!!l.connected && l.state_confirmed_by_controller===true && typeof l.gpio_on==="boolean";
+  $("lightVisual").className="light-state "+(lightKnown?(l.gpio_on?"light-on":"light-off"):"");
+  $("lightState").textContent=!l.connected?"Controller disconnected":!lightKnown?"State unknown":l.gpio_on?"ON":"OFF";
+  $("lightCard").className="panel "+(!l.connected?"bad":!lightKnown?"":"ok");
+  $("lightCmd").textContent=l.last_command?"Last command: "+l.last_command+(l.sent_at?" (sent "+hms(new Date(Date.parse(l.sent_at)))+")":""):"No command sent yet";
+  if(l.error&&!l.connected)alerts.push({t:"Light controller status unavailable: "+l.error,sim:false});
+  if(simFail)alerts.push({t:"Simulated Light Failure: demonstration alert only. This does not detect a real hardware fault.",sim:true});
+  const rows=$("rows");rows.innerHTML="";
+  d.events.forEach(e=>{const tr=document.createElement("tr"),t=new Date(Date.parse(e.timestamp));[isNaN(t)?e.timestamp:hms(t),"#"+(e.track_id??e.id??"-")].forEach(txt=>{const td=document.createElement("td");td.textContent=txt;tr.appendChild(td);});rows.appendChild(tr);});
+  $("noEvents").hidden=d.events.length>0;drawChart(d.summary.per_minute||[]);
+ }
+ if(error&&simFail)alerts.unshift({t:"Simulated Light Failure: demonstration alert only. This does not detect a real hardware fault.",sim:true});
+ const box=$("alerts");box.innerHTML="";alerts.forEach(a=>{const div=document.createElement("div");div.className="alert"+(a.sim?" sim":"");div.textContent=a.t;box.appendChild(div);});
+}
+function drawChart(data){
+ const cv=$("chart"),r=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*r;cv.height=h*r;
+ const g=cv.getContext("2d");g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);
+ const css=getComputedStyle(document.documentElement),ink=css.getPropertyValue("--mute").trim(),bar=css.getPropertyValue("--bar").trim(),line=css.getPropertyValue("--line").trim();
+ const L=30,B=24,T=10,plotW=w-L-6,plotH=h-B-T,max=Math.max(3,...data.map(p=>p.count||0));
+ g.font="12px sans-serif";g.fillStyle=ink;g.strokeStyle=line;g.textAlign="right";
+ const step=Math.max(1,Math.ceil(max/4));for(let v=0;v<=max;v+=step){const y=T+plotH-(v/max)*plotH;g.beginPath();g.moveTo(L,y);g.lineTo(w-6,y);g.stroke();g.fillText(v,L-5,y+4);}
+ const slot=plotW/Math.max(1,data.length);
+ data.forEach((p,i)=>{const bh=((p.count||0)/max)*plotH,x=L+i*slot+slot*.15;g.fillStyle=bar;g.fillRect(x,T+plotH-bh,slot*.7,bh);g.fillStyle=ink;g.textAlign="center";if(data.length<=6||i%2===0)g.fillText(p.minute,x+slot*.35,h-6);});
+}
+async function tick(){try{render(live?await liveData():mockData(),null);}catch(err){render(null,err.message);}}
+function setMode(){const b=$("modeBadge");b.textContent=live?"LIVE DATA":"DEMO DATA";b.className="badge "+(live?"live":"demo");$("bMode").textContent=live?"Switch to demo data":"Switch to live data";$("demoOnly").hidden=live;tick();}
+$("bMode").onclick=()=>{live=!live;setMode();};
+$("bFail").onclick=async()=>{
+ if(live){
+  try{const r=await fetch(API_BASE+"/api/toggle-failure",{method:"POST"});if(!r.ok)throw new Error("Could not toggle demo flag");const d=await r.json();simFail=!!d.simulated_light_failure;tick();}
+  catch(e){render(null,e.message);}
+ }else{simFail=!simFail;tick();}
+};
+$("bEvent").onclick=()=>{const now=new Date();mock.events.push({id:mock.nextId++,timestamp:iso(now),minute:hm(now),track_id:Math.floor(Math.random()*9)+1});mock.lightCmd="ON";mock.lightOn=true;mock.lightSent=iso(now);tick();};
+$("bCam").onclick=()=>{mock.camDown=!mock.camDown;if(mock.camDown)mock.camSeen=Date.now();tick();};
+$("bCtrl").onclick=()=>{mock.ctrlDown=!mock.ctrlDown;if(mock.ctrlDown)mock.ctrlSeen=Date.now();tick();};
+$("bReset").onclick=()=>{resetMock();simFail=false;tick();};
+window.addEventListener("resize",()=>{if(!live)tick();else drawChart([]);});
+setMode();setInterval(tick,POLL_MS);
+</script>
+</body>
+</html>
